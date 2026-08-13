@@ -1,33 +1,56 @@
+import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from chart_styles import PRESETS
 
-def build_chart(
-    df, chart_type, x_col, y_cols, label_col, title, subtitle,
-    preset, show_labels, show_grid, show_legend, width, height, reference=0
-):
-    style = PRESETS[preset]
+CHART_TYPES = [
+    "Bar", "Horizontal Bar", "Line", "Area",
+    "Scatter", "Pie", "Donut", "Histogram", "Box Plot"
+]
 
+def recommend_chart(df):
+    numeric = df.select_dtypes(include="number").columns.tolist()
+    cols = df.columns.tolist()
+
+    if len(cols) >= 2:
+        first = str(cols[0]).lower()
+        if any(k in first for k in ["month", "date", "year", "quarter", "period", "week"]):
+            return "Line"
+
+    if len(numeric) == 1 and len(df) <= 15:
+        return "Horizontal Bar"
+
+    if len(numeric) >= 2 and len(df) >= 10:
+        return "Scatter"
+
+    if len(numeric) == 1:
+        return "Histogram"
+
+    return "Bar"
+
+def build_chart(df, chart_type, x_col, y_cols, label_col, title, subtitle,
+                preset, show_labels, show_grid, show_legend, width, height, reference=0):
+    style = PRESETS[preset]
     fig = go.Figure()
 
     if chart_type in ["Bar", "Horizontal Bar"]:
-        orientation = "h" if chart_type == "Horizontal Bar" else "v"
+        if not y_cols:
+            raise ValueError("Select at least one numeric value.")
+        horizontal = chart_type == "Horizontal Bar"
         for col in y_cols:
             fig.add_trace(go.Bar(
-                x=df[x_col] if orientation == "v" else df[col],
-                y=df[col] if orientation == "v" else df[x_col],
+                x=df[col] if horizontal else df[x_col],
+                y=df[x_col] if horizontal else df[col],
                 name=str(col),
+                orientation="h" if horizontal else "v",
                 text=df[col] if show_labels else None,
                 texttemplate="%{text}",
                 textposition="outside",
-                orientation=orientation,
-                marker=dict(
-                    color=style["accent"],
-                    line=dict(width=0)
-                ),
+                marker=dict(color=style["accent"]),
             ))
 
     elif chart_type in ["Line", "Area"]:
+        if not y_cols:
+            raise ValueError("Select at least one value series.")
         for col in y_cols:
             fig.add_trace(go.Scatter(
                 x=df[x_col],
@@ -41,21 +64,21 @@ def build_chart(
             ))
 
     elif chart_type == "Scatter":
-        if len(y_cols) < 1:
+        if not y_cols:
             raise ValueError("Select a numeric Y variable.")
         for col in y_cols:
             fig.add_trace(go.Scatter(
                 x=df[x_col],
                 y=df[col],
-                mode="markers+text" if show_labels else "markers",
-                text=df[col] if show_labels else None,
-                textposition="top center",
+                mode="markers",
                 name=str(col),
                 marker=dict(size=style["marker_size"]),
             ))
 
     elif chart_type in ["Pie", "Donut"]:
-        fig = go.Figure(go.Pie(
+        if not label_col or not y_cols:
+            raise ValueError("Select categories and values.")
+        fig.add_trace(go.Pie(
             labels=df[label_col],
             values=df[y_cols[0]],
             hole=0.52 if chart_type == "Donut" else 0,
@@ -63,12 +86,11 @@ def build_chart(
         ))
 
     elif chart_type == "Histogram":
-        fig.add_trace(go.Histogram(
-            x=df[x_col],
-            marker=dict(color=style["accent"]),
-        ))
+        fig.add_trace(go.Histogram(x=df[x_col], marker=dict(color=style["accent"])))
 
-    elif chart_type == "Box":
+    elif chart_type == "Box Plot":
+        if not y_cols:
+            raise ValueError("Select a numeric variable.")
         fig.add_trace(go.Box(
             y=df[y_cols[0]],
             name=str(y_cols[0]),
@@ -77,11 +99,8 @@ def build_chart(
         ))
 
     if reference and chart_type in ["Line", "Area", "Bar", "Horizontal Bar"]:
-        fig.add_hline(
-            y=reference,
-            line_dash="dash",
-            annotation_text=f"Reference: {reference:g}",
-        )
+        fig.add_hline(y=reference, line_dash="dash",
+                      annotation_text=f"Reference: {reference:g}")
 
     fig.update_layout(
         title=dict(
@@ -92,16 +111,11 @@ def build_chart(
         width=width,
         height=height,
         template=style["template"],
-        showlegend=show_legend and chart_type not in ["Pie", "Donut", "Histogram", "Box"],
-        font=dict(
-            family=style["font"],
-            size=style["font_size"],
-        ),
-        margin=dict(l=70, r=35, t=90, b=65),
+        showlegend=show_legend and chart_type not in ["Pie", "Donut", "Histogram", "Box Plot"],
+        font=dict(family=style["font"], size=style["font_size"]),
+        margin=dict(l=75, r=35, t=95, b=70),
         bargap=0.25,
     )
-
     fig.update_xaxes(showgrid=show_grid, zeroline=False)
     fig.update_yaxes(showgrid=show_grid, zeroline=False)
-
     return fig
