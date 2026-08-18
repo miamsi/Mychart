@@ -1,5 +1,7 @@
 # Version 1 - Enhanced Styling Configurations & Formatters
 
+import pandas as pd
+
 PRESETS = {
     "Executive": {
         "template": "plotly_white",
