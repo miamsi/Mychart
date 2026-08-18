@@ -1,9 +1,11 @@
+# Version 1 - Streamlit Main Application UI with Reshaping, Aggregation, and Styling Controls
+
 import io
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from chart_engine import recommend_chart, build_chart, CHART_TYPES
-from chart_styles import PRESETS
+from chart_engine import recommend_chart, build_chart, CHART_TYPES, reshape_time_series
+from chart_styles import PRESETS, AVAILABLE_FONTS, COLOR_PALETTES, NUMBER_FORMATS
 
 st.set_page_config(page_title="Chart Studio", page_icon="📊", layout="wide")
 
@@ -70,6 +72,25 @@ data_tab, design_tab, export_tab = st.tabs(["1 · Data", "2 · Design", "3 · Ex
 with data_tab:
     st.subheader("Your analytical table")
     st.caption("This is the data Chart Studio will visualize. It does not modify your source file.")
+    
+    with st.expander("Reshape Time Series Data (Wide-to-Long Unpivot)", expanded=False):
+        st.caption("Use this tool if your periods/dates are spread across separate columns.")
+        all_table_cols = df.columns.tolist()
+        id_cols = st.multiselect("ID / Category Columns (Keep as identifiers)", all_table_cols)
+        value_cols = st.multiselect("Period / Date Columns (To collapse into rows)", [c for c in all_table_cols if c not in id_cols])
+        
+        col_name_var = st.text_input("New Date/Period Column Name", value="Period")
+        col_name_val = st.text_input("New Value Column Name", value="Value")
+        parse_dates_flag = st.checkbox("Automatically parse dates", value=True)
+        
+        if st.button("Apply Reshape"):
+            if value_cols:
+                st.session_state.df = reshape_time_series(
+                    df, id_cols=id_cols, value_cols=value_cols,
+                    var_name=col_name_var, value_name=col_name_val, parse_dates=parse_dates_flag
+                )
+                st.rerun()
+
     st.dataframe(df, use_container_width=True, height=430)
 
 with design_tab:
@@ -109,6 +130,10 @@ with design_tab:
         st.divider()
         st.markdown("### Style")
         preset = st.selectbox("Preset", list(PRESETS))
+        font_family = st.selectbox("Font Family", AVAILABLE_FONTS, index=0)
+        number_format = st.selectbox("Number Format", NUMBER_FORMATS, index=0)
+        selected_palette_name = st.selectbox("Color Palette", list(COLOR_PALETTES.keys()), index=0)
+        x_axis_angle = st.slider("X-Axis Label Rotation (°)", min_value=0, max_value=90, value=0, step=15)
 
     with right:
         st.markdown("### Quick controls")
@@ -129,6 +154,8 @@ with design_tab:
         label_col = None
         x_col = None
         y_cols = []
+        secondary_y_cols = []
+        agg_func = "None"
 
         if chart_type in ["Donut", "Pie"]:
             label_col = st.selectbox("Categories", all_cols)
@@ -150,6 +177,16 @@ with design_tab:
                 available_y,
                 default=available_y[:2] if len(available_y) >= 2 else available_y[:1],
             )
+            
+            if chart_type in ["Bar", "Line", "Area", "Scatter"] and len(y_cols) > 1:
+                secondary_y_cols = st.multiselect(
+                    "Secondary Y-axis series (Right axis)",
+                    y_cols,
+                    default=[]
+                )
+
+        if chart_type not in ["Histogram", "Box Plot"]:
+            agg_func = st.selectbox("Data Aggregation", ["None", "Sum", "Average", "Count", "Max", "Min"], index=0)
 
         if chart_type in ["Horizontal Bar", "Bar", "Line", "Area"]:
             with st.expander("Analysis helpers", expanded=False):
@@ -161,6 +198,21 @@ with design_tab:
             top_n = 0
             reference = 0.0
 
+        custom_colors = COLOR_PALETTES.get(selected_palette_name)
+        if y_cols:
+            with st.expander("Custom Series Colors (Override Palette)", expanded=False):
+                override_colors = []
+                for i, col in enumerate(y_cols):
+                    default_hex = (
+                        custom_colors[i % len(custom_colors)]
+                        if custom_colors
+                        else PRESETS[preset]["accent"]
+                    )
+                    chosen_hex = st.color_picker(f"Color for '{col}'", value=default_hex, key=f"color_{col}")
+                    override_colors.append(chosen_hex)
+                if override_colors:
+                    custom_colors = override_colors
+
         chart_df = df.copy()
         if sort_values and y_cols:
             chart_df = chart_df.sort_values(y_cols[0], ascending=False)
@@ -169,20 +221,26 @@ with design_tab:
 
         try:
             fig = build_chart(
-                chart_df,
-                chart_type,
-                x_col,
-                y_cols,
-                label_col,
-                title,
-                subtitle,
-                preset,
-                show_labels,
-                show_grid,
-                show_legend,
-                width,
-                height,
-                reference,
+                df=chart_df,
+                chart_type=chart_type,
+                x_col=x_col,
+                y_cols=y_cols,
+                label_col=label_col,
+                title=title,
+                subtitle=subtitle,
+                preset=preset,
+                show_labels=show_labels,
+                show_grid=show_grid,
+                show_legend=show_legend,
+                width=width,
+                height=height,
+                reference=reference,
+                agg_func=agg_func,
+                custom_colors=custom_colors,
+                x_axis_angle=x_axis_angle,
+                number_format=number_format,
+                secondary_y_cols=secondary_y_cols,
+                font_family=font_family,
             )
             st.plotly_chart(fig, use_container_width=True)
             st.session_state.current_fig = fig
