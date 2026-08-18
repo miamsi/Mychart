@@ -1,4 +1,4 @@
-# Version 1 - Streamlit Main Application UI with Reshaping, Aggregation, and Styling Controls
+# Version 1 - Streamlit Main Application UI with Dynamic Palette Keying & Color Pickers
 
 import io
 import pandas as pd
@@ -198,20 +198,31 @@ with design_tab:
             top_n = 0
             reference = 0.0
 
-        custom_colors = COLOR_PALETTES.get(selected_palette_name)
-        if y_cols:
-            with st.expander("Custom Series Colors (Override Palette)", expanded=False):
-                override_colors = []
+        # Palette colors setup
+        palette_colors = COLOR_PALETTES.get(selected_palette_name)
+        if not palette_colors:
+            palette_colors = [PRESETS[preset]["accent"]]
+
+        custom_colors = []
+
+        # Color Pickers for Pie/Donut (per category) or standard charts (per series)
+        if chart_type in ["Pie", "Donut"] and label_col and label_col in df.columns:
+            unique_cats = df[label_col].dropna().unique().tolist()
+            with st.expander("Color Pickers (Category Slices)", expanded=True):
+                for i, cat in enumerate(unique_cats):
+                    default_hex = palette_colors[i % len(palette_colors)]
+                    picker_key = f"color_{cat}_{selected_palette_name}_{preset}"
+                    chosen_hex = st.color_picker(f"Color for '{cat}'", value=default_hex, key=picker_key)
+                    custom_colors.append(chosen_hex)
+        elif y_cols:
+            with st.expander("Color Pickers (Series Colors)", expanded=True):
                 for i, col in enumerate(y_cols):
-                    default_hex = (
-                        custom_colors[i % len(custom_colors)]
-                        if custom_colors
-                        else PRESETS[preset]["accent"]
-                    )
-                    chosen_hex = st.color_picker(f"Color for '{col}'", value=default_hex, key=f"color_{col}")
-                    override_colors.append(chosen_hex)
-                if override_colors:
-                    custom_colors = override_colors
+                    default_hex = palette_colors[i % len(palette_colors)]
+                    picker_key = f"color_{col}_{selected_palette_name}_{preset}"
+                    chosen_hex = st.color_picker(f"Color for '{col}'", value=default_hex, key=picker_key)
+                    custom_colors.append(chosen_hex)
+        else:
+            custom_colors = palette_colors
 
         chart_df = df.copy()
         if sort_values and y_cols:
@@ -257,7 +268,6 @@ with export_tab:
     else:
         st.success("Your chart is ready.")
 
-        # Interactive HTML is dependency-free and always available.
         html = fig.to_html(include_plotlyjs="cdn", full_html=True)
         st.download_button(
             "Download interactive HTML",
